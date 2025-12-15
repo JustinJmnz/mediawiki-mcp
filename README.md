@@ -8,6 +8,36 @@ This Docker Compose configuration runs MediaWiki with a MariaDB (MySQL) database
 - Docker Compose (included with Docker Desktop)
 - At least 2GB of free disk space
 
+## MCP Server Features
+
+The MediaWiki MCP Server is a .NET 8.0 Model Context Protocol implementation that enables AI assistants to interact with your MediaWiki instance through VS Code.
+
+### Available Tools (10 Total)
+
+**Read-Only Access (6 tools):**
+- `search_pages` - Search wiki pages by keyword
+- `get_page_content` - Retrieve full page content
+- `get_page_info` - Get page metadata (ID, length, revision)
+- `list_all_pages` - Browse all published pages
+- `get_recent_changes` - View recent edits
+- `get_site_info` - Retrieve wiki configuration
+
+**Draft Management (4 tools):**
+- `create_draft_page` - Create new content in Draft namespace for review
+- `edit_draft_page` - Modify existing drafts based on feedback
+- `publish_draft` - Move approved content to main namespace
+- `delete_page` - Remove unsuitable or rejected pages
+
+### Draft Workflow
+
+All content created by the AI goes to the `Draft:` namespace by default:
+
+1. **Review**: Navigate to `http://localhost/wiki/Draft:Page_Name`
+2. **Approve**: Use the `publish_draft` tool to move to main namespace
+3. **Revise**: Use `edit_draft_page` to request changes
+4. **Reject**: Use `delete_page` to remove unsuitable content
+
+
 ## Quick Start
 
 **Important:** Ensure the Docker daemon is running before proceeding. If you get a "system cannot find the file" error, the Docker daemon isn't accessible. You can:
@@ -33,6 +63,43 @@ Open your browser and navigate to `http://localhost`
 4. **Login credentials:**
 - Username: `admin`
 - Password: `Password123!`
+
+### Set Up the MCP Server in VS Code
+
+5. **Install the MCP Extension:**
+   - Open VS Code Extensions (`Ctrl+Shift+X`)
+   - Search for and install "MCP Extension" (by ModelContextProtocol)
+
+6. **Configure the MCP Server:**
+   - Open VS Code Settings (`Ctrl+,`)
+   - Search for "mcp.json" or navigate to your MCP extension settings
+   - Add this configuration:
+
+```json
+{
+  "servers": {
+    "media-wiki": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "c:\\Users\\Justi\\source\\repos\\mediawiki-mcp\\MediaWikiMCP"
+      ],
+      "env": {
+        "MEDIAWIKI_URL": "http://localhost"
+      }
+    }
+  }
+}
+```
+
+**Note:** Update the path to match your installation directory.
+
+7. **Verify the connection:**
+   - Restart VS Code or reload the window (`Ctrl+R`)
+   - Open the MCP extension panel
+   - You should see "media-wiki" listed with 10 available tools (6 read-only + 4 draft management)
 
 ## Services
 
@@ -93,34 +160,6 @@ docker-compose up -d
 
 Modify `LocalSettings.php` to customize MediaWiki settings. Changes take effect after restarting the container.
 
-## Development Notes
-
-- The MediaWiki container uses the official `mediawiki:latest` image
-- MariaDB is a MySQL-compatible database officially supported by MediaWiki
-- Both services communicate on the `mediawiki-network` Docker network
-- Volumes ensure data persistence between container restarts
-
 ## Troubleshooting
 
-### MediaWiki shows an error page
-1. Check MariaDB is running: `docker-compose ps`
-2. View MediaWiki logs: `docker-compose logs mediawiki`
-3. Verify database credentials in `LocalSettings.php`
-4. Ensure `$wgServer` is set correctly in `LocalSettings.php`
-
-### Port already in use
-- Change port mappings in `docker-compose.yml`:
-  - MariaDB: Change `3306:3306` to `3307:3306`
-  - MediaWiki: Change `80:80` to `8080:80`
-
-### Container crashes on startup
 Check the logs: `docker-compose logs mediawiki` or `docker-compose logs mariadb`
-
-## Next Steps for MCP Server Development
-
-1. Set up your MCP server application with MediaWiki API access
-2. Use the credentials and connection details above
-3. Connect to MediaWiki at `http://localhost`
-4. Connect to MariaDB at `localhost:3306`
-
-Refer to [MediaWiki API Documentation](https://www.mediawiki.org/wiki/API:Main_page) for integration details.
