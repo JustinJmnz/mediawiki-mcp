@@ -88,4 +88,25 @@ public class MediaWikiTools
     {
         return await _wikiService.GetSiteInfo();
     }
+
+    [McpServerTool]
+    [Description("Create a draft page for review before publishing")]
+    public async Task<object> CreateDraftPage(string title, string content, string? summary = null)
+    {
+        return await _wikiService.CreateDraftPage(title, content, summary ?? "");
+    }
+
+    [McpServerTool]
+    [Description("Edit an existing draft page")]
+    public async Task<object> EditDraftPage(string title, string content, string? summary = null)
+    {
+        return await _wikiService.EditDraftPage(title, content, summary ?? "");
+    }
+
+    [McpServerTool]
+    [Description("Delete a wiki page")]
+    public async Task<object> DeletePage(string title, string? reason = null)
+    {
+        return await _wikiService.DeletePage(title, reason ?? "");
+    }
 }

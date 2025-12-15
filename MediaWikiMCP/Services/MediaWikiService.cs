@@ -241,6 +241,221 @@ public class MediaWikiService
         return new { success = true, pages = results };
     }
 
+    public async Task<object> CreateOrEditPage(string title, string content, string summary = "")
+    {
+        try
+        {
+            // Step 1: Get CSRF token
+            var tokenUrl = BuildApiUrl(new Dictionary<string, string>
+            {
+                { "action", "query" },
+                { "meta", "tokens" },
+                { "type", "csrf" },
+                { "format", "json" }
+            });
+
+            var tokenResponse = await _httpClient.GetAsync(tokenUrl);
+            var tokenContent = await tokenResponse.Content.ReadAsStringAsync();
+            var tokenDoc = JsonDocument.Parse(tokenContent);
+            
+            var csrfToken = tokenDoc.RootElement
+                .GetProperty("batchcomplete")
+                .GetString();
+            
+            if (!tokenDoc.RootElement.TryGetProperty("query", out var queryEl) ||
+                !queryEl.TryGetProperty("tokens", out var tokensEl) ||
+                !tokensEl.TryGetProperty("csrftoken", out var tokenEl))
+            {
+                return new { success = false, error = "Failed to get CSRF token" };
+            }
+
+            var token = tokenEl.GetString();
+
+            // Step 2: Edit the page
+            var editUrl = BuildApiUrl(new Dictionary<string, string>
+            {
+                { "action", "edit" },
+                { "title", title },
+                { "text", content },
+                { "summary", summary },
+                { "token", token },
+                { "format", "json" }
+            });
+
+            var editContent = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                { "action", "edit" },
+                { "title", title },
+                { "text", content },
+                { "summary", summary },
+                { "token", token },
+                { "format", "json" }
+            });
+
+            var editResponse = await _httpClient.PostAsync($"{_baseUrl}{ApiPath}", editContent);
+            var editResponseContent = await editResponse.Content.ReadAsStringAsync();
+            var editDoc = JsonDocument.Parse(editResponseContent);
+
+            if (!editDoc.RootElement.TryGetProperty("edit", out var editEl))
+            {
+                return new { success = false, error = "Invalid response from server" };
+            }
+
+            if (editEl.TryGetProperty("result", out var resultEl))
+            {
+                var result = resultEl.GetString();
+                if (result == "Success")
+                {
+                    return new
+                    {
+                        success = true,
+                        message = $"Page '{title}' created/updated successfully",
+                        pageid = editEl.TryGetProperty("pageid", out var pageId) 
+                            ? pageId.GetInt32() 
+                            : 0
+                    };
+                }
+            }
+
+            return new { success = false, error = "Failed to edit page" };
+        }
+        catch (Exception ex)
+        {
+            return new { success = false, error = ex.Message };
+        }
+    }
+
+    public async Task<object> DeletePage(string title, string reason = "")
+    {
+        try
+        {
+            // Step 1: Get CSRF token
+            var tokenUrl = BuildApiUrl(new Dictionary<string, string>
+            {
+                { "action", "query" },
+                { "meta", "tokens" },
+                { "type", "csrf" },
+                { "format", "json" }
+            });
+
+            var tokenResponse = await _httpClient.GetAsync(tokenUrl);
+            var tokenContent = await tokenResponse.Content.ReadAsStringAsync();
+            var tokenDoc = JsonDocument.Parse(tokenContent);
+
+            if (!tokenDoc.RootElement.TryGetProperty("query", out var queryEl) ||
+                !queryEl.TryGetProperty("tokens", out var tokensEl) ||
+                !tokensEl.TryGetProperty("csrftoken", out var tokenEl))
+            {
+                return new { success = false, error = "Failed to get CSRF token" };
+            }
+
+            var token = tokenEl.GetString();
+
+            // Step 2: Delete the page
+            var deleteContent = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                { "action", "delete" },
+                { "title", title },
+                { "reason", reason },
+                { "token", token },
+                { "format", "json" }
+            });
+
+            var deleteResponse = await _httpClient.PostAsync($"{_baseUrl}{ApiPath}", deleteContent);
+            var deleteResponseContent = await deleteResponse.Content.ReadAsStringAsync();
+            var deleteDoc = JsonDocument.Parse(deleteResponseContent);
+
+            if (!deleteDoc.RootElement.TryGetProperty("delete", out var deleteEl))
+            {
+                return new { success = false, error = "Invalid response from server" };
+            }
+
+            if (deleteEl.TryGetProperty("title", out var titleEl))
+            {
+                var deletedTitle = titleEl.GetString();
+                return new
+                {
+                    success = true,
+                    message = $"Page '{deletedTitle}' deleted successfully"
+                };
+            }
+
+            return new { success = false, error = "Failed to delete page" };
+        }
+        catch (Exception ex)
+        {
+            return new { success = false, error = ex.Message };
+        }
+    }
+
+    public async Task<object> CreateDraftPage(string title, string content, string summary = "")
+    {
+        try
+        {
+            // Create page in Draft namespace with review notice
+            var draftTitle = $"Draft:{title}";
+            var reviewNotice = "{{Under review}}\n\n";
+            var contentWithReview = reviewNotice + content;
+            var draftSummary = string.IsNullOrEmpty(summary) 
+                ? "Created as draft for review" 
+                : $"Draft: {summary}";
+
+            var result = await CreateOrEditPage(draftTitle, contentWithReview, draftSummary);
+
+            if (result is not null)
+            {
+                return new
+                {
+                    success = true,
+                    message = $"Draft page created for review",
+                    draftTitle = draftTitle,
+                    reviewUrl = $"{_baseUrl}/wiki/{Uri.EscapeDataString(draftTitle.Replace(" ", "_"))}",
+                    publicationTitle = title,
+                    note = "Review the draft and call 'publish_draft' to move to main namespace"
+                };
+            }
+
+            return new { success = false, error = "Failed to create draft page" };
+        }
+        catch (Exception ex)
+        {
+            return new { success = false, error = ex.Message };
+        }
+    }
+
+    public async Task<object> EditDraftPage(string title, string content, string summary = "")
+    {
+        try
+        {
+            // Edit existing draft page (keeps review notice)
+            var draftTitle = $"Draft:{title}";
+            var reviewNotice = "{{Under review}}\n\n";
+            var contentWithReview = reviewNotice + content;
+            var draftSummary = string.IsNullOrEmpty(summary) 
+                ? "Updated draft" 
+                : $"Draft updated: {summary}";
+
+            var result = await CreateOrEditPage(draftTitle, contentWithReview, draftSummary);
+
+            if (result is not null)
+            {
+                return new
+                {
+                    success = true,
+                    message = $"Draft page updated",
+                    draftTitle = draftTitle,
+                    reviewUrl = $"{_baseUrl}/wiki/{Uri.EscapeDataString(draftTitle.Replace(" ", "_"))}"
+                };
+            }
+
+            return new { success = false, error = "Failed to edit draft page" };
+        }
+        catch (Exception ex)
+        {
+            return new { success = false, error = ex.Message };
+        }
+    }
+
     private string BuildApiUrl(Dictionary<string, string> parameters)
     {
         var queryParams = new List<string>();
